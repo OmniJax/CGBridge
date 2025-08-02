@@ -1,0 +1,35 @@
+# CGBridge Stage 1: CGE Pre-training
+output:
+  # The save directory will be automatically created as: outputs_dir() / checkpoints / save_dir_name
+  save_dir: "gt-ACD-2-unixcoder-32q"  # Save directory name
+
+data:
+  train_path: "/path/to/graph_datasets/train_summarization_ACD_unixcoder.pt"
+  valid_path: "/path/to/graph_datasets/valid_summarization_ACD_unixcoder.pt"
+
+model:
+  in_channels: 768           # Input feature dimension
+  hidden_channels: 1024      # Hidden layer dimension
+  out_channels: 768          # Output feature dimension
+  gnn_type: 'gt'             # GNN type: gt(GraphTransformer), gcn, gat
+  num_layers: 2              # Number of GNN layers
+  dropout: 0.1               # Dropout rate
+  num_heads: 4               # Number of multi-head attention heads
+  tau: 0.3                   # Temperature parameter (lower values make contrastive learning stricter)
+  p_drop_node: 0.1           # Node feature dropout rate
+  p_drop_edge: 0.05          # Edge dropout rate
+  
+
+trainer:
+  batch_size: 88            # Batch size
+  lr: 0.00001                 # Learning rate
+  weight_decay: 0.001        # Weight decay (regularization)
+  lambda_contrast: 0.6       # Contrastive learning loss weight
+  lambda_edge_type: 0.4      # Edge type prediction loss weight
+  neg_samples_ratio: 0.5     # Negative sample ratio
+  device: 'cuda:7'           # Device to use, e.g., 'cuda:0', 'cuda:1', 'cpu'
+  num_workers: 8            # Number of data loading threads
+  num_epochs: 100            # Maximum number of training epochs
+  patience: 10               # Early stopping patience value
+  monitor: 'loss'            # Monitoring metric: 'loss', 'cl_loss', 'edge_loss'
+  mode: 'min'                # Monitoring mode: 'min' (the smaller the better), 'max' (the larger the better)

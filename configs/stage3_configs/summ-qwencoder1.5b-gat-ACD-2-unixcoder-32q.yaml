@@ -1,0 +1,86 @@
+# CGBridge Stage 3: Instruction-Based Task Adaptation.
+language: "Python"
+task: "summarization"
+
+
+output:
+  save_dir: "/path/to/outputs/gnns/summ-qwencoder1.5b-gat-ACD-2-unixcoder-32q" 
+  log_freq: 100  # 日志记录频率
+
+data:
+  train_path: "/path/to/pair_datasets/summ-gat-ACD-2-unixcoder/train_summ-gat-ACD-2-unixcoder.csv"
+  valid_path: "/path/to/pair_datasets/summ-gat-ACD-2-unixcoder/valid_summ-gat-ACD-2-unixcoder.csv"
+  test_path:  "/path/to/pair_datasets/summ-gat-ACD-2-unixcoder/test_summ-gat-ACD-2-unixcoder.csv"
+  batch_size: 8
+  num_workers: 6
+
+training:
+  num_epochs: 150
+  lr: 1.0e-6
+  weight_decay: 0.01
+  warmup_ratio: 0.01
+  lr_scheduler_type: "plateau"
+  patience: 20 
+  scheduler_min_lr: 1.0e-10
+  scheduler_factor: 0.5
+  scheduler_patience: 2
+
+model:
+  # Path of Stage 2
+  stage2_model_dir: "/path/to/outputs/stage2/gat-ACD-2-unixcoder-32q/best_model"
+  llm_name_or_path: "/path/to/LLMs/Qwen2.5-Coder-1.5B-Instruct" 
+  llm_type: "qwen"         
+  llm_dtype: "bfloat16"    
+  device: "cuda"      
+  # LLM       
+  max_txt_len: 8192
+
+generation:
+  max_new_tokens: 1024
+  min_new_tokens: 10
+  temperature: 0
+  repetition_penalty: 1.1
+
+
+
+prompts:
+  summarization:
+    system_prompt: "You are an expert {language} assistant. Generate clear, concise, and accurate docstrings strictly following PEP 257 triple quote formatting."
+
+    user_prompt: | 
+      Generate a {language} docstring for the code below.
+      Format: PEP 257 triple quotes.
+      Required Structure:
+      """
+      One-line summary of the function. (Optional) More detailed explanation if logic is complex.
+
+      Parameters:
+          param_name (param_type): Description of parameter. (Use 'None' if no parameters)
+
+      Returns:
+          return_type: Description of returned value. (Use 'None' if no explicit return)
+      """
+
+      Code:
+      ```python
+      {code}
+      ```
+
+  translation:
+    system_prompt: |
+      Role: {language} to Java Translator.      
+      Output: Single, runnable Java class (e.g., `Solution` or `Main`).
+      Structure:
+      1.  Core logic in a `public static` method.
+      2.  `public static void main(String[] args)`: Calls static method (use user's sample inputs if given, else defaults) and prints output via `System.out.println()`.
+      Ensure:
+      * Functional Python-Java equivalence.
+      * Correct Java types and standard library mapping.
+      * Necessary `import`s.
+      * Compilable and runnable code.
+
+    user_prompt: |
+      Translate the following Python code to Java.
+      ```python
+      {code}
+      ```

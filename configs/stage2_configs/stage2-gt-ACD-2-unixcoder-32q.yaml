@@ -1,0 +1,35 @@
+# CGBridge Stage 2: Graph-Text Cross-Modal Alignment.
+
+output:
+  save_dir: "/path/to//outputs/stage1/ACD_2_unixcoder_32q"  # Directory to save model checkpoints
+
+data:
+  # Relative paths assume execution from project root, adjust if needed
+  train_path: "/path/to//tasks/summarization/pair_datasets/sum_ACD_2_unixcoder/train_sum_ACD_2_unixcoder.csv"  # Training data CSV path
+  valid_path: "/path/to//tasks/summarization/pair_datasets/sum_ACD_2_unixcoder/valid_sum_ACD_2_unixcoder.csv"  # Validation data CSV path
+  batch_size: 16 # Batch size for training/testing
+  max_length: 512 # Max sequence length for text data in dataset loading
+  num_workers: 6  # DataLoader workers
+
+model:
+  # Relative path to the BERT model directory
+  bert_model_dir: "/path/to/models/bert-base-uncased" 
+  num_query_token: 32          # Number of query tokens
+  graph_width: 768             # Dimension of input graph embeddings (should match data)
+  cross_attention_freq: 2      # Frequency of cross-attention layers
+  embed_dim: 256               # Dimension for projection heads (GTC/GTM)
+  max_txt_len: 512             # Max sequence length for QFormer text input processing
+  device: "cuda"               # Preferred device ("cuda" or "cpu")
+
+trainer: # Parameters mainly for a full training script, but useful for testing setup
+  lr: 5.0e-7                 # Learning rate
+  weight_decay: 0.01           # Weight decay
+  num_epochs: 100               # Number of training epochs
+  patience: 10                 # Early stopping patience
+  seed: 42                     # Random seed
+  log_freq: 50
+
+generation: # Parameters for testing the generate function
+  max_length: 64               # Max generation length for testing
+  min_length: 5                # Min generation length for testing
+  num_beams: 3                 # Number of beams for beam search testing 
