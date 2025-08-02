@@ -89,7 +89,7 @@ def extract_node_text(node, code_lines):
 
 import pandas as pd
 def build_cfg(node_map: Dict) -> List[Tuple[int, int, str, str]]:
-    """从AST构建简单的控制流图"""
+
     cfg_edges = []
     
     def find_parent(node_id):
@@ -313,12 +313,10 @@ def build_dfg(node_map: Dict) -> List[Tuple[int, int, str, str]]:
                 sub_dfg, states = process_node(right_id, states.copy())
                 local_dfg.extend(sub_dfg)
             
-            # 处理左侧节点，建立contributes to关系
             for left_id in left_nodes:
                 left_info = node_map[left_id]
                 
                 if left_info['type'] == 'identifier':
-                    # 简单变量赋值
                     var_name = left_info['text']
                     if var_name not in states:
                         states[var_name] = []
@@ -454,12 +452,12 @@ def build_dfg(node_map: Dict) -> List[Tuple[int, int, str, str]]:
     
     return dfg_edges
 
-# 迭代版本的节点编码
+
 def encode_nodes_iterative(node_map: Dict, tokenizer, model) -> torch.Tensor:
-    """使用迭代方式逐个编码节点"""
+
     device = model.device
     node_embeddings_list = []
-    node_ids = sorted(node_map.keys())  # 确保顺序一致
+    node_ids = sorted(node_map.keys())  
     
     for node_id in node_ids:
         info = node_map[node_id]
@@ -468,14 +466,11 @@ def encode_nodes_iterative(node_map: Dict, tokenizer, model) -> torch.Tensor:
             inputs = tokenizer(text, return_tensors='pt', padding='max_length', truncation=True, max_length=512).to(device)
             with torch.no_grad():
                 outputs = model(**inputs)
-                # 使用[CLS]token的表示作为整个代码片段的表示
+
                 embedding = outputs.last_hidden_state[:, 0, :].cpu().squeeze()
                 node_embeddings_list.append(embedding)
         else:
-            # 对于没有文本的节点，使用零向量
-            node_embeddings_list.append(torch.zeros(768))  # CodeBERT的维度是768
-    
-    # 将所有嵌入堆叠为一个大张量
+            node_embeddings_list.append(torch.zeros(768))  
     if node_embeddings_list:
         node_embeddings = torch.stack(node_embeddings_list)
     else:
@@ -483,41 +478,34 @@ def encode_nodes_iterative(node_map: Dict, tokenizer, model) -> torch.Tensor:
     
     return node_embeddings
 
-# 批量版本的节点编码（带批处理大小）
 def encode_nodes_batch(node_map: Dict, tokenizer, model, batch_size=256) -> torch.Tensor:
-    """使用批量方式编码节点，可控制批处理大小"""
     device = model.device
-    node_ids = sorted(node_map.keys())  # 确保顺序一致
+    node_ids = sorted(node_map.keys())  
     
-    # 收集所有节点的文本
     node_texts = []
     for node_id in node_ids:
         text = node_map[node_id]['refined_text']
         if text:
             node_texts.append(text)
         else:
-            node_texts.append('')  # 空文本用空字符串表示
+            node_texts.append('')  
     
-    # 检查是否有节点文本
     if not node_texts:
         return torch.zeros((0, 768))
     
-    # 分批处理节点文本
     all_embeddings = []
     for i in range(0, len(node_texts), batch_size):
         batch_texts = node_texts[i:i+batch_size]
         
-        # 批量编码
         inputs = tokenizer(batch_texts, return_tensors='pt', padding='max_length', truncation=True, max_length=512).to(device)
         with torch.no_grad():
             outputs = model(**inputs)
-            batch_embeddings = outputs.last_hidden_state[:, 0, :].cpu()  # 获取[CLS] token的嵌入
+            batch_embeddings = outputs.last_hidden_state[:, 0, :].cpu()  
             all_embeddings.append(batch_embeddings)
     
     # del inputs,outputs
     # torch.cuda.empty_cache()
     
-    # 合并所有批次的嵌入
     if all_embeddings:
         node_embeddings = torch.cat(all_embeddings, dim=0)
     else:
@@ -525,14 +513,11 @@ def encode_nodes_batch(node_map: Dict, tokenizer, model, batch_size=256) -> torc
     
     return node_embeddings
 
-# 迭代版本的边编码
 def encode_edges_iterative(all_edges: List, tokenizer, model) -> torch.Tensor:
-    """使用迭代方式逐个编码边"""
     device = model.device
     
-    # 检查是否有边
     if not all_edges:
-        print('警告: 没有找到边')
+        print('Warning: No edges found')
         return torch.zeros((0, 768))
     
     edge_embeddings_list = []
@@ -540,40 +525,31 @@ def encode_edges_iterative(all_edges: List, tokenizer, model) -> torch.Tensor:
         inputs = tokenizer(edge_attr, return_tensors='pt', padding='max_length', truncation=True, max_length=512).to(device)
         with torch.no_grad():
             outputs = model(**inputs)
-            # 使用[CLS]token的表示作为整个边属性的表示
             embedding = outputs.last_hidden_state[:, 0, :].cpu().squeeze()
             edge_embeddings_list.append(embedding)
     
-    # 将所有嵌入堆叠为一个大张量
     edge_embeddings = torch.stack(edge_embeddings_list)
     return edge_embeddings
 
-# 批量版本的边编码（带批处理大小）
 def encode_edges_batch(all_edges: List, tokenizer, model, batch_size=256) -> torch.Tensor:
-    """使用批量方式编码边，可控制批处理大小"""
     device = model.device
     
-    # 检查是否有边
     if not all_edges:
-        print('警告: 没有找到边')
+        print('Warning: No edges found')
         return torch.zeros((0, 768))
     
-    # 收集所有边的文本属性
     edge_texts = [edge_attr for _, _, _, edge_attr in all_edges]
     
-    # 分批处理边文本
     all_embeddings = []
     for i in range(0, len(edge_texts), batch_size):
         batch_texts = edge_texts[i:i+batch_size]
         
-        # 批量编码
         inputs = tokenizer(batch_texts, return_tensors='pt', padding='max_length', truncation=True, max_length=512).to(device)
         with torch.no_grad():
             outputs = model(**inputs)
-            batch_embeddings = outputs.last_hidden_state[:, 0, :].cpu()  # 获取[CLS] token的嵌入
+            batch_embeddings = outputs.last_hidden_state[:, 0, :].cpu()  
             all_embeddings.append(batch_embeddings)
     
-    # 合并所有批次的嵌入
     if all_embeddings:
         edge_embeddings = torch.cat(all_embeddings, dim=0)
     else:
@@ -581,64 +557,55 @@ def encode_edges_batch(all_edges: List, tokenizer, model, batch_size=256) -> tor
     
     return edge_embeddings
 
-# 统一的编码函数（可设置批处理大小）
 def encode_nodes(node_map: Dict, tokenizer, model, batch_size=256) -> torch.Tensor:
-    """编码节点，可设置批处理大小"""
-    if batch_size <= 0:  # 迭代处理每个节点
+    if batch_size <= 0:  
         return encode_nodes_iterative(node_map, tokenizer, model)
-    elif batch_size >= len(node_map):  # 一次性处理所有节点
+    elif batch_size >= len(node_map):  
         return encode_nodes_batch(node_map, tokenizer, model, len(node_map))
-    else:  # 分批处理节点
+    else:  
         return encode_nodes_batch(node_map, tokenizer, model, batch_size)
 
 def encode_edges_with_cache(all_edges: List) -> torch.Tensor:
-    """使用预计算的缓存编码边"""
     global EDGE_EMBEDDING_CACHE
     
-    # 检查是否有边
     if not all_edges:
-        print('警告: 没有找到边')
+        print('Warning: No edges found')
         return torch.zeros((0, 768))
     
-    # 从缓存中获取嵌入
     edge_embeddings = []
     for _, _, _, edge_attr in all_edges:
         if edge_attr in EDGE_EMBEDDING_CACHE:
             edge_embeddings.append(EDGE_EMBEDDING_CACHE[edge_attr])
         else:
-            print(f"警告: 未找到边类型 '{edge_attr}' 的预计算嵌入")
+            print(f"Warning: No cached embedding found for edge type '{edge_attr}'")
             edge_embeddings.append(torch.zeros(768))
     
-    # 将嵌入堆叠为一个大张量
     edge_embeddings = torch.stack(edge_embeddings)
     return edge_embeddings
 
 
 
 def encode_edges(all_edges: List, tokenizer, model, batch_size=256,edge_cache_path=None) -> torch.Tensor:
-    """编码边，可设置批处理大小"""
-
         
     if not all_edges:
-        print('警告: 没有找到边')
+        print('Warning: No edges found')
         return torch.zeros((0, 768))
         
     if edge_cache_path:
         load_edge_embedding_cache(edge_cache_path)
         return encode_edges_with_cache(all_edges)
     
-    if batch_size <= 0:  # 迭代处理每条边
+    if batch_size <= 0:  
         return encode_edges_iterative(all_edges, tokenizer, model)
-    elif batch_size >= len(all_edges):  # 一次性处理所有边
+    elif batch_size >= len(all_edges):  
         return encode_edges_batch(all_edges, tokenizer, model, len(all_edges))
-    else:  # 分批处理边
+    else:  
         return encode_edges_batch(all_edges, tokenizer, model, batch_size)
 
 
 
 
 def determine_ast_relation(parent_type, child_type):
-    """确定AST边的细分类型"""
     if parent_type == 'function_definition':
         if child_type == 'identifier':
             return 'has name'
@@ -669,62 +636,40 @@ def determine_ast_relation(parent_type, child_type):
         else:
             return 'has value'
     
-    # 默认关系
     return 'contains'
 
 def is_left_side(parent_type: str, child_type: str, child_index: int = 0) -> bool:
-    """
-    判断给定类型的子节点在父节点中是否处于"左侧"（作为赋值目标）
-    
-    Args:
-        parent_type: 父节点的类型
-        child_type: 子节点的类型
-        child_index: 子节点在同类型兄弟节点中的索引（用于区分多个相同类型的子节点）
-        
-    Returns:
-        bool: 如果子节点是赋值目标，则返回True
-    """
-    # 赋值语句中的左侧标识符
+
     if parent_type == 'assignment' and child_type == 'identifier' and child_index == 0:
         return True
     
-    # 增强赋值语句中的左侧标识符
     if parent_type == 'augmented_assignment' and child_type == 'identifier' and child_index == 0:
         return True
     
-    # 多重赋值语句（元组赋值）中的模式列表中的标识符
     if parent_type == 'pattern_list' and child_type == 'identifier':
         return True
     
-    # 函数定义中的函数名
     if parent_type == 'function_definition' and child_type == 'identifier' and child_index == 0:
         return True
     
-    # 类定义中的类名
     if parent_type == 'class_definition' and child_type == 'identifier' and child_index == 0:
         return True
     
-    # 参数定义中的参数名
     if parent_type == 'default_parameter' and child_type == 'identifier' and child_index == 0:
         return True
     
-    # for循环中的迭代变量
     if parent_type == 'for_statement' and child_type == 'identifier' and child_index == 0:
         return True
     
-    # with语句中的别名赋值
     if parent_type == 'with_item' and child_type == 'identifier' and child_index > 0:
         return True
     
-    # except子句中的异常别名
     if parent_type == 'except_clause' and child_type == 'identifier' and child_index > 0:
         return True
     
-    # 推导式中的迭代变量
     if parent_type in ['list_comprehension', 'dictionary_comprehension', 'set_comprehension'] and child_type == 'identifier' and child_index == 0:
         return True
-    
-    # 导入语句中的别名
+
     if parent_type == 'import_from_statement' and child_type == 'identifier' and child_index > 0:
         return True
     
@@ -732,7 +677,7 @@ def is_left_side(parent_type: str, child_type: str, child_index: int = 0) -> boo
 
 
 def extract_ast_edges(node_map: Dict) -> List[Tuple[int, int, str]]:
-    """从节点映射中提取AST边"""
+
     ast_edges = []
     for node_id, info in node_map.items():
         for child_id in info['children']:
@@ -753,11 +698,7 @@ def build_pyg_graph(node_map: Dict, all_edges: List, node_embeddings: torch.Tens
     
     node_ids = sorted(node_map.keys())
     
-    # collect node text
-    # x_text = []
-    # for node_id in node_ids:
-    #     x_text.append(node_map[node_id]['refined_text'])
-    
+
     edge_index = []
     edge_type = []
     # edge_text = []
@@ -784,9 +725,7 @@ def build_pyg_graph(node_map: Dict, all_edges: List, node_embeddings: torch.Tens
 
 
 def refine_node_text(node_map: Dict) -> Dict:
-    """
-    为所有节点添加精简文本字段：statement类型只保留第一行，其他类型保持原样
-    """
+
     statement_types = [
         'if_statement', 'for_statement', 'while_statement', 'try_statement',
         'elif_clause', 'else_clause', 'except_clause', 'finally_clause',
@@ -809,7 +748,7 @@ def refine_node_text(node_map: Dict) -> Dict:
     return node_map
 
 def code_to_graph(code: str, tokenizer, model, edge_types=['AST','CFG','DFG'], code_from_file=False, batch_size=256, edge_cache_path=None, edge_type_to_id=None) -> Data:
-    """处理单个Python文件，提取AST、CFG、DFG，编码节点，并返回PyG格式的图"""
+
     if code_from_file:
         with open(code, 'r', encoding='utf-8') as f:
             code = f.read()
@@ -842,9 +781,9 @@ def code_to_graph(code: str, tokenizer, model, edge_types=['AST','CFG','DFG'], c
     return graph
 
 def save_graph(graph: Data, output_path: str):
-    """保存PyG图到文件"""
+
     torch.save(graph, output_path)
-    print(f"图已保存到 {output_path}")
+    print(f"Graph saved to {output_path}")
 
 
 def parse_args():
@@ -858,7 +797,7 @@ def parse_args():
     return parser.parse_args()
 
 def initialize_encoder(model_name_or_path: str, device: str):
-    """初始化代码编码器"""
+    
     tokenizer = RobertaTokenizer.from_pretrained(model_name_or_path)
     model = RobertaModel.from_pretrained(model_name_or_path, device_map=device)
     return tokenizer, model
@@ -874,13 +813,11 @@ def load_edge_embedding_cache(edge_cache_path):
 if __name__ == "__main__":
     args = parse_args()
     
-    # 设置默认输出路径
     if args.output is None:
         output_dir = os.path.join(graph_datasets_dir(), "single_files")
         os.makedirs(output_dir, exist_ok=True)
         args.output = os.path.join(output_dir, "code_graph.pt")
     
-    # 初始化编码器
     tokenizer, model = initialize_encoder(args.model_name_or_path, args.device)
     
     print('batch size:',args.batch_size)

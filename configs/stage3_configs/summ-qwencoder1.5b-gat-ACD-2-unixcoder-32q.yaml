@@ -5,7 +5,7 @@ task: "summarization"
 
 output:
   save_dir: "/path/to/outputs/gnns/summ-qwencoder1.5b-gat-ACD-2-unixcoder-32q" 
-  log_freq: 100  # 日志记录频率
+  log_freq: 100  
 
 data:
   train_path: "/path/to/pair_datasets/summ-gat-ACD-2-unixcoder/train_summ-gat-ACD-2-unixcoder.csv"
