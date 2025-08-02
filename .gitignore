@@ -1,6 +1,3 @@
-.specstory/**
-.cursorindexingignore
-
 /datasets/*
 !/datasets/.gitkeep
 
@@ -86,3 +83,6 @@ Thumbs.db
 *.h5
 *.npy
 *.npz
+
+.specstory/**
+.cursorindexingignore
