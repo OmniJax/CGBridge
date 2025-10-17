@@ -72,7 +72,7 @@ Our experiments were conducted on the following environment:
 
 ## Stage 1: Code Graph Encoder (CGE) Pre-training
 
-This stage focuses on building graph representations from source code and training the Code Graph Encoder (CGE) to understand them.
+This stage focuses on constructing graph representations from source code and training the Code Graph Encoder (CGE) to understand them.
 
 ### 1.1. Dataset Preparation
 
