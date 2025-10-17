@@ -434,7 +434,7 @@ def main():
             df_existing_output[EVALUATION_COLUMN].str.startswith("Error", na=False) |
             df_existing_output[EVALUATION_COLUMN].isna() |
             (df_existing_output[EVALUATION_COLUMN] == 'None') |
-            df_existing_output['overall_score'].isna()  # 如果评分列为空也重新处理
+            df_existing_output['overall_score'].isna()  # If score column is empty, reprocess as well
         )
         
         if needs_reprocessing.any():
@@ -497,7 +497,7 @@ def main():
         return
 
     total_rows_to_process = len(df_to_process)
-    total_input_rows = len(df_target_for_saving)  # 实际加载的总行数
+    total_input_rows = len(df_target_for_saving)  # Actual total number of rows loaded
     
     if NROWS is not None:
         print(f"A total of {total_rows_to_process} records will be submitted to the API for evaluation (filtered from the first {NROWS} rows).")
@@ -591,7 +591,7 @@ def main():
                     error_message = f"Error: Exception during evaluation processing for index {retrieved_original_idx} - {exc}"
                     parse_and_store_result(retrieved_original_idx, error_message)
 
-    # 保存结果
+    # Save results
     try:
         df_target_for_saving.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')
         print(f"Processing completed. Results saved to: {OUTPUT_CSV_PATH}")
@@ -634,7 +634,7 @@ def main():
                             min_score = valid_scores.min()
                             max_score = valid_scores.max()
                             
-                            # 添加到汇总数据
+                            # Add to summary data
                             summary_data[f'{col}_mean'] = [round(avg_score, 3)]
                             summary_data[f'{col}_std'] = [round(std_score, 3)]
                             summary_data[f'{col}_min'] = [min_score]
@@ -847,20 +847,20 @@ def main():
                     print(f"  - Average score of four dimensions: {ratings_avg_mean:.2f}/4.0")
             
         except Exception as stats_error:
-            print(f"统计结果时出错: {stats_error}")
+            print(f"Error while calculating statistics: {stats_error}")
             
     except Exception as e:
-        print(f"错误: 保存结果到CSV文件 {OUTPUT_CSV_PATH} 失败: {e}")
+        print(f"Error: Failed to save results to CSV file {OUTPUT_CSV_PATH}: {e}")
 
 def parse_evaluation_results(csv_path: str):
     """
-    解析评价结果的辅助函数
+    Helper function to parse evaluation results
     """
     try:
         df = pd.read_csv(csv_path)
         
         if EVALUATION_COLUMN not in df.columns:
-            print(f"错误: CSV文件中未找到评价结果列 '{EVALUATION_COLUMN}'")
+            print(f"Error: Evaluation result column '{EVALUATION_COLUMN}' not found in CSV file")
             return None
             
         evaluations = []
@@ -876,7 +876,7 @@ def parse_evaluation_results(csv_path: str):
         return evaluations
         
     except Exception as e:
-        print(f"解析评价结果时出错: {e}")
+        print(f"Error parsing evaluation results: {e}")
         return None
 
 if __name__ == "__main__":
