@@ -6,7 +6,7 @@ CGBridge is a novel framework designed to enhance the code understanding capabil
 
 - **Stage 1: Self-supervised Structural Pretraining.** We train a powerful Code Graph Encoder (CGE) to learn meaningful representations of code graphs through self-supervised tasks, including graph-level contrastive learning and edge-type prediction.
 
-- **Stage 2: Cross-Modal Alignment.** We introduce a "bridge" module, initialized to align the learned graph embeddings from Stage 1 with the semantic space of natural language and code text.
+- **Stage 2: Cross-Modal Alignment.** We introduce a "Bridge" module, initialized to align the learned graph embeddings from Stage 1 with the semantic space of natural language and code text.
 
 - **Stage 3: Instruction-based Task Adaptation.** The aligned graph representations are used as soft prompts for a frozen LLM, which is then instruction-tuned on various downstream code understanding tasks, such as code summarization and translation.
 
@@ -23,7 +23,6 @@ CGBridge is a novel framework designed to enhance the code understanding capabil
 git clone <https://anonymous.4open.science/r/CGBridge>
 cd CGBridge
 ```
-
 
 ### 2. Environment Setup
 
@@ -70,7 +69,7 @@ Our experiments were conducted on the following environment:
 
 ---
 
-## Stage 1: Code Graph Encoder (CGE) Pre-training
+## Stage 1: Self-supervised Structural Pretraining
 
 This stage focuses on constructing graph representations from source code and training the Code Graph Encoder (CGE) to understand them.
 
@@ -138,27 +137,3 @@ We provide a comprehensive suite of evaluation scripts for both tasks.
   
   - **Code Correctness:** `tasks/translation/check_java_compilation.py` attempts to compile the generated Java code using `javac` to check for syntactic and semantic correctness.
   - **Code Quality:** `tasks/translation/evaluate_translations.py` calculates the CodeBLEU score, which evaluates the quality of translated code by considering n-gram matches, syntactic AST similarity, and data-flow similarity.
-
----
-
-## Case Analysis for Code Translation
-
-### Failure Cases
-
-![](markdown.assets/README.assets/2025-10-13-15-56-41-bad%20case_page-0001.jpg)
-
-### Good Cases
-
-![](markdown.assets/README.assets/2025-10-13-16-20-36-translation%20good%20case_page-0001.jpg)
-
-## Case Analysis for Code Summarization
-
-Only the summary section is shown.
-
-### Bad Cases
-
-![](markdown.assets/README.assets/2025-10-13-20-45-19-summarization%20bad%20case_page-0001.jpg)
-
-### Good Cases
-
-![](markdown.assets/README.assets/2025-10-13-20-45-39-summarization%20good%20case_page-0001.jpg)
