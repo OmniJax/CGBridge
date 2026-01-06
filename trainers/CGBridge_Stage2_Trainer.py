@@ -135,6 +135,42 @@ def create_dataloaders(config):
         max_length=config['model']['max_txt_len']
     )
     
+    def collate_graph_text(batch):
+        """
+        Collate function to handle variable-length node embeddings.
+        Supports either graph-level vector (shape [dim]) or node sequence (shape [num_nodes, dim]).
+        """
+        idx_list, graph_list, code_list, code_emb_list = zip(*batch)
+
+        # Determine max sequence length and embedding dim
+        seq_lens = []
+        emb_dim = None
+        for g in graph_list:
+            if g.dim() == 1:
+                seq_lens.append(1)
+                emb_dim = g.size(-1)
+            elif g.dim() == 2:
+                seq_lens.append(g.size(0))
+                emb_dim = g.size(-1)
+            else:
+                raise ValueError(f"Unsupported graph embedding shape: {g.shape}")
+        max_len = max(seq_lens)
+
+        # Prepare padded tensors
+        graph_embeds = torch.zeros(len(batch), max_len, emb_dim, dtype=graph_list[0].dtype)
+        graph_atts = torch.zeros(len(batch), max_len, dtype=torch.long)
+
+        for i, g in enumerate(graph_list):
+            if g.dim() == 1:
+                g = g.unsqueeze(0)
+            cur_len = g.size(0)
+            graph_embeds[i, :cur_len] = g
+            graph_atts[i, :cur_len] = 1
+
+        idx_tensor = torch.tensor(idx_list, dtype=torch.long)
+
+        return (idx_tensor, (graph_embeds, graph_atts), list(code_list), list(code_emb_list))
+    
     # Create data loaders (no need to explicitly set DistributedSampler, Accelerate will handle it)
     train_loader = DataLoader(
         train_dataset,
@@ -143,6 +179,7 @@ def create_dataloaders(config):
         num_workers=config['data']['num_workers'],
         pin_memory=True,
         drop_last=True,
+        collate_fn=collate_graph_text,
     )
     
     valid_loader = DataLoader(
@@ -151,6 +188,7 @@ def create_dataloaders(config):
         shuffle=False,
         num_workers=config['data']['num_workers'],
         pin_memory=True,
+        collate_fn=collate_graph_text,
     )
     
     return train_loader, valid_loader

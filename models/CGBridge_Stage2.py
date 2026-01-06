@@ -75,7 +75,7 @@ class CodeGraphTextDataset(Dataset):
     def __init__(self, csv_path, max_length=512):
         """
         Args:
-            csv_path: Path to CSV file with columns: idx, graph_emb, code, code_emb
+            csv_path: Path to CSV file with columns: idx, graph_emb or node_embs, code, code_emb
             max_length: Maximum sequence length for code text.
         """
         try:
@@ -84,6 +84,8 @@ class CodeGraphTextDataset(Dataset):
             logging.error(f"Error loading CSV {csv_path}: {e}")
             raise
         self.max_length = max_length
+        # Check whether node_embs is available (list of per-node embeddings)
+        self.has_node_embs = 'node_embs' in self.df.columns
         logging.info(f"Loaded {len(self.df)} samples from {csv_path}")
         
     def __len__(self):
@@ -96,8 +98,13 @@ class CodeGraphTextDataset(Dataset):
         item = self.df.iloc[idx]
         
         try:
-            graph_emb_str = item['graph_emb'].strip('[]').split(',')
-            graph_emb = torch.tensor([float(x) for x in graph_emb_str], dtype=torch.float)
+            if self.has_node_embs:
+                # node_embs is expected to be a stringified list of lists
+                node_embs = eval(item['node_embs'])  # noqa: S307 - trusted data assumption
+                graph_emb = torch.tensor(node_embs, dtype=torch.float)
+            else:
+                graph_emb_str = item['graph_emb'].strip('[]').split(',')
+                graph_emb = torch.tensor([float(x) for x in graph_emb_str], dtype=torch.float)
             
             code = str(item['code']) # Ensure code is string
             
@@ -231,9 +238,26 @@ class CGBridgeStage2(nn.Module):
         _, graph_emb, code_text, _ = samples
         
         # Prepare graph embeddings (input Zv)
-        # Unsqueeze to add sequence dimension: [batch_size, 1, graph_width]
-        graph_embeds = graph_emb.unsqueeze(1).to(self.device)
-        graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long).to(self.device)
+        # Support either a single graph-level embedding [bs, dim] or a sequence of node embeddings [bs, seq_len, dim]
+        if isinstance(graph_emb, tuple):
+            graph_embeds, graph_atts = graph_emb  # Expect (embeds, attention_mask)
+        else:
+            graph_embeds = graph_emb
+            graph_atts = None
+        
+        if graph_embeds.dim() == 2:
+            # Only one graph token per sample
+            graph_embeds = graph_embeds.unsqueeze(1)
+            graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long)
+        elif graph_embeds.dim() == 3:
+            # Already a sequence, create a full attention mask if not provided
+            if graph_atts is None:
+                graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long)
+        else:
+            raise ValueError(f"Unsupported graph_embeds shape: {graph_embeds.shape}")
+        
+        graph_embeds = graph_embeds.to(self.device)
+        graph_atts = graph_atts.to(self.device)
         
         # Expand query tokens for the batch
         query_tokens = self.query_tokens.expand(graph_embeds.shape[0], -1, -1)
@@ -467,14 +491,30 @@ class CGBridgeStage2(nn.Module):
             List of generated code strings.
         """
         _, graph_emb, _, _ = samples
-        graph_embeds = graph_emb.unsqueeze(1).to(self.device)
+        
+        # Support graph-level or node-level embeddings at generation time as well
+        if isinstance(graph_emb, tuple):
+            graph_embeds, graph_atts = graph_emb
+        else:
+            graph_embeds = graph_emb
+            graph_atts = None
+        
+        if graph_embeds.dim() == 2:
+            graph_embeds = graph_embeds.unsqueeze(1)
+            graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long)
+        elif graph_embeds.dim() == 3:
+            if graph_atts is None:
+                graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long)
+        else:
+            raise ValueError(f"Unsupported graph_embeds shape: {graph_embeds.shape}")
+
+        graph_embeds = graph_embeds.to(self.device)
+        graph_atts = graph_atts.to(self.device)
         bs = graph_embeds.shape[0]
 
         # --- Q-Former Pass 1: Get Graph Context ---
         # Same as in forward pass to get graph features encoded into query tokens
         query_tokens = self.query_tokens.expand(bs, -1, -1)
-        graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long).to(self.device)
-        
         query_output = self.Qformer.bert(
             query_embeds=query_tokens,
             encoder_hidden_states=graph_embeds,

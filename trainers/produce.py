@@ -49,6 +49,8 @@ def main():
     # Remove --code_encoder parameter
     parser.add_argument('--column_name', type=str, default='code',
                         help='Code column name')
+    parser.add_argument('--output_type', type=str, default='node', choices=['graph', 'node'],
+                        help='Choose whether to export graph-level embeddings or per-node embeddings')
     parser.add_argument('--use_random_weights', action='store_true',
                    help='Use randomly initialized weights instead of loading the trained model')
     
@@ -165,8 +167,9 @@ def main():
         except Exception as e:
             print(f"Error reading existing file: {e}")
             processed_indices = set()
-
+    
     # Modify CSV header, remove code_emb column
+    # header is left for backward compatibility, actual columns are handled by pandas
     header = ['idx', 'graph_emb', 'code']
 
     # If there are backup files, copy processed content
@@ -184,8 +187,11 @@ def main():
     if 'idx' not in result_data.columns:
         result_data['idx'] = range(len(result_data))
     
-    # Initialize graph_emb column
-    result_data['graph_emb'] = [None] * len(result_data)
+    # Initialize output column(s)
+    if args.output_type == 'graph':
+        result_data['graph_emb'] = [None] * len(result_data)
+    elif args.output_type == 'node':
+        result_data['node_embs'] = [None] * len(result_data)
     
     # Process graph and code simultaneously in one pass
     print("Starting to extract code graph embedding vectors...")
@@ -210,16 +216,36 @@ def main():
             if not unprocessed_indices:
                 continue
                 
-            # Get graph embeddings
-            _, graph_emb = model(data.x, data.edge_index, data.edge_attr, data.batch)
+            # Get node and graph embeddings
+            node_emb, graph_emb = model(data.x, data.edge_index, data.edge_attr, data.batch)
+            node_emb = node_emb.cpu()
             graph_emb = graph_emb.cpu().numpy()
+            
+            # Prepare per-graph node embedding slices if needed
+            if args.output_type == 'node':
+                if hasattr(data, 'ptr'):
+                    ptr = data.ptr.cpu().tolist()
+                else:
+                    counts = torch.bincount(data.batch.cpu())
+                    ptr = [0]
+                    for c in counts.tolist():
+                        ptr.append(ptr[-1] + c)
             
             for j, idx in enumerate(batch_indices):
                 if idx not in processed_indices:
-                    if idx < len(result_data):
-                        result_data.at[idx, 'graph_emb'] = graph_emb[j].tolist()
-                    else:
+                    if idx >= len(result_data):
                         print(f"Warning: idx={idx} exceeds data range")
+                        continue
+                    
+                    if args.output_type == 'graph':
+                        result_data.at[idx, 'graph_emb'] = graph_emb[j].tolist()
+                    elif args.output_type == 'node':
+                        # Slice node embeddings belonging to this graph
+                        if j + 1 >= len(ptr):
+                            print(f"Warning: ptr length {len(ptr)} is insufficient for graph {j} in batch")
+                            continue
+                        start, end = ptr[j], ptr[j + 1]
+                        result_data.at[idx, 'node_embs'] = node_emb[start:end].numpy().tolist()
                     
                     processed_indices.add(idx)
             
