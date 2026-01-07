@@ -6,6 +6,7 @@ import os
 import sys
 import re
 import yaml
+import json
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
@@ -89,6 +90,30 @@ class CGBridgeStage3(nn.Module):
         
         # Ensure model and parameters are on the current process's device
         # self.to(self.device)
+
+    def _normalize_graph_inputs(self, graph_embs, device):
+        """
+        Normalize graph embeddings to shape [bs, seq_len, dim] and build attention mask.
+        Supports either a single graph vector per sample or a padded node sequence.
+        """
+        if isinstance(graph_embs, tuple):
+            graph_embeds, graph_atts = graph_embs
+        else:
+            graph_embeds, graph_atts = graph_embs, None
+
+        if graph_embeds.dim() == 2:
+            graph_embeds = graph_embeds.unsqueeze(1)
+            if graph_atts is None:
+                graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long)
+        elif graph_embeds.dim() == 3:
+            if graph_atts is None:
+                graph_atts = torch.ones(graph_embeds.size()[:-1], dtype=torch.long)
+        else:
+            raise ValueError(f"Unsupported graph_embeds shape: {graph_embeds.shape}")
+
+        graph_embeds = graph_embeds.to(device)
+        graph_atts = graph_atts.to(device=device, dtype=torch.long)
+        return graph_embeds, graph_atts
 
     def load_stage2_config(self):
         """Load necessary parameters from Stage2 model configuration file"""
@@ -434,21 +459,13 @@ class CGBridgeStage3(nn.Module):
 
         model_dev = next(self.parameters()).device
         
-        # Initial check for graph_embs from input
-        if torch.isnan(graph_embs).any() or torch.isinf(graph_embs).any():
-            logger.error(f"FORWARD_INPUT_CHECK: NaN/Inf detected in input graph_embs! CSV_Indices (first 5): {idx_batch.tolist()[:5] if isinstance(idx_batch, torch.Tensor) else 'N/A'}")
-
-        assert graph_embs.device == model_dev, f"graph_embs device: {graph_embs.device}, model device: {model_dev}"
-        assert next(self.Qformer.parameters()).device == model_dev, f"Qformer device: {next(self.Qformer.parameters()).device}, model device: {model_dev}"
-        assert self.query_tokens.device == model_dev, f"query_tokens device: {self.query_tokens.device}, model device: {model_dev}"
-        
-        multimodal_embeds = graph_embs.unsqueeze(dim=1)
+        # Normalize graph embeddings (supports graph-level vector or node sequence)
+        multimodal_embeds, multimodal_atts = self._normalize_graph_inputs(graph_embs, device=model_dev)
         if torch.isnan(multimodal_embeds).any() or torch.isinf(multimodal_embeds).any():
-            logger.error(f"FORWARD_QFORMER_PREP: NaN/Inf detected in multimodal_embeds (unsqueezed graph_embs)! CSV_Indices (first 5): {idx_batch.tolist()[:5] if isinstance(idx_batch, torch.Tensor) else 'N/A'}")
+            logger.error(f"FORWARD_QFORMER_PREP: NaN/Inf detected in multimodal_embeds! CSV_Indices (first 5): {idx_batch.tolist()[:5] if isinstance(idx_batch, torch.Tensor) else 'N/A'}")
             
-        multimodal_atts = torch.ones(multimodal_embeds.size()[:-1], dtype=torch.long, device=graph_embs.device)
         # Initialize query tokens
-        query_tokens = self.query_tokens.expand(multimodal_embeds.shape[0], -1, -1).to(graph_embs.device)
+        query_tokens = self.query_tokens.expand(multimodal_embeds.shape[0], -1, -1).to(model_dev)
         
         # Qformer processing
         query_output = self.Qformer.bert(
@@ -518,15 +535,15 @@ class CGBridgeStage3(nn.Module):
         
         # Extract sample components
         graph_embs, code_text = samples
-        bs = len(samples[0])
+        graph_embeds, graph_atts = self._normalize_graph_inputs(graph_embs, device=device)
+        bs = graph_embeds.shape[0]
         
         with torch.no_grad():
-            # No need to .to(device), directly use the device of graph_embs
-            multimodal_embeds = graph_embs.unsqueeze(dim=1)
-            multimodal_atts = torch.ones(multimodal_embeds.size()[:-1], dtype=torch.long, device=graph_embs.device)
+            multimodal_embeds = graph_embeds
+            multimodal_atts = graph_atts
             
             # Initialize query tokens, using the device of graph_embs
-            query_tokens = self.query_tokens.expand(multimodal_embeds.shape[0], -1, -1)
+            query_tokens = self.query_tokens.expand(multimodal_embeds.shape[0], -1, -1).to(device)
             
             # Qformer processing
             query_output = self.Qformer.bert(
@@ -691,11 +708,8 @@ class CGBridgeStage3(nn.Module):
         # Extract sample components
         graph_embs, code_text = samples
         
-        #  Critical fix: Ensure graph_embs are on the correct device
-        graph_embs = graph_embs.to(device)
-        
-        multimodal_embeds = graph_embs.unsqueeze(dim=1)
-        multimodal_atts = torch.ones(multimodal_embeds.size()[:-1], dtype=torch.long, device=device)
+        #  Normalize and ensure graph_embs are on the correct device
+        multimodal_embeds, multimodal_atts = self._normalize_graph_inputs(graph_embs, device=device)
         
         #  Critical fix: Ensure query_tokens are on the correct device
         query_tokens = self.query_tokens.expand(multimodal_embeds.shape[0], -1, -1).to(device)
@@ -894,7 +908,7 @@ class CGBridgeStage3(nn.Module):
         """
         device = next(self.parameters()).device
         graph_embs, code_text = samples
-        graph_embs = graph_embs.to(device)
+        graph_embeds, graph_atts = self._normalize_graph_inputs(graph_embs, device=device)
         
         batch_size = len(code_text)
         num_layers = self.llm_model.config.num_hidden_layers
@@ -903,8 +917,8 @@ class CGBridgeStage3(nn.Module):
         print(f"Batch: {batch_size}, Layers: {num_layers}, Device: {device}")
         
         # Data preprocessing
-        multimodal_embeds = graph_embs.unsqueeze(dim=1)
-        multimodal_atts = torch.ones(multimodal_embeds.size()[:-1], dtype=torch.long, device=device)
+        multimodal_embeds = graph_embeds
+        multimodal_atts = graph_atts
         query_tokens = self.query_tokens.expand(multimodal_embeds.shape[0], -1, -1).to(device)
         
         # Q-Former processing
@@ -1237,9 +1251,12 @@ class CodeSummaryDataset(torch.utils.data.Dataset):
         import pandas as pd
         self.df = pd.read_csv(csv_path)
         self.max_length = max_length
+        self.has_node_embs = 'node_embs' in self.df.columns
         
         # Check if necessary columns exist
-        required_columns = {'idx', 'graph_emb'}
+        required_columns = {'idx'}
+        if not self.has_node_embs:
+            required_columns.add('graph_emb')
         possible_code_columns = {'code', 'source_code', 'input_code'}
         possible_summary_columns = {'answer', 'code_summary', 'summary', 'description'}
         
@@ -1279,9 +1296,13 @@ class CodeSummaryDataset(torch.utils.data.Dataset):
         item = self.df.iloc[idx]
         
         try:
-            # Parse graph embedding
-            graph_emb_str = item['graph_emb'].strip('[]').split(',')
-            graph_emb = torch.tensor([float(x) for x in graph_emb_str], dtype=torch.float)
+            # Parse graph embedding (graph-level vector or per-node list)
+            if self.has_node_embs:
+                node_embs = json.loads(item['node_embs'])
+                graph_emb = torch.tensor(node_embs, dtype=torch.float)
+            else:
+                graph_emb_str = item['graph_emb'].strip('[]').split(',')
+                graph_emb = torch.tensor([float(x) for x in graph_emb_str], dtype=torch.float)
             
             # Get code text
             code = str(item[self.code_column]) 
@@ -1308,9 +1329,12 @@ class CodeTranslateDataset(torch.utils.data.Dataset):
         import pandas as pd
         self.df = pd.read_csv(csv_path)
         self.max_length = max_length
+        self.has_node_embs = 'node_embs' in self.df.columns
         
         # Check if necessary columns exist
-        required_columns = {'idx', 'graph_emb', 'src_code', 'tgt_code'}
+        required_columns = {'idx', 'src_code', 'tgt_code'}
+        if not self.has_node_embs:
+            required_columns.add('graph_emb')
         missing_required = required_columns - set(self.df.columns)
         if missing_required:
             raise ValueError(f"CSV is missing required columns: {missing_required}")
@@ -1329,8 +1353,12 @@ class CodeTranslateDataset(torch.utils.data.Dataset):
         
         try:
             # Parse graph embedding
-            graph_emb_str = item['graph_emb'].strip('[]').split(',')
-            graph_emb = torch.tensor([float(x) for x in graph_emb_str], dtype=torch.float)
+            if self.has_node_embs:
+                node_embs = json.loads(item['node_embs'])
+                graph_emb = torch.tensor(node_embs, dtype=torch.float)
+            else:
+                graph_emb_str = item['graph_emb'].strip('[]').split(',')
+                graph_emb = torch.tensor([float(x) for x in graph_emb_str], dtype=torch.float)
             
             # Get source code text
             src_code = str(item['src_code']) 

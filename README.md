@@ -1,4 +1,4 @@
-# CGBridge: Bridging Code Graphs and Large Language Models for Better Code Understanding
+# CGBridge: Bridging Code Graphs and Large Language Models for Better Structure-Aware Code Understanding
 
 ![](markdown.assets/README.assets/2025-10-17-12-24-48-image.png)
 

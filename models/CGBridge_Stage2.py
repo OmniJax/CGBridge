@@ -6,6 +6,7 @@ Performs GTC, GTM, and GTG tasks.
 
 import logging
 import os
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -86,6 +87,15 @@ class CodeGraphTextDataset(Dataset):
         self.max_length = max_length
         # Check whether node_embs is available (list of per-node embeddings)
         self.has_node_embs = 'node_embs' in self.df.columns
+
+        # Determine code column name
+        possible_code_columns = ('code', 'source_code', 'input_code')
+        self.code_column = next((c for c in possible_code_columns if c in self.df.columns), None)
+        if self.code_column is None:
+            raise ValueError(
+                f"Cannot find code column in CSV. Expected one of: {possible_code_columns}. "
+                f"Available columns: {list(self.df.columns)}"
+            )
         logging.info(f"Loaded {len(self.df)} samples from {csv_path}")
         
     def __len__(self):
@@ -99,14 +109,14 @@ class CodeGraphTextDataset(Dataset):
         
         try:
             if self.has_node_embs:
-                # node_embs is expected to be a stringified list of lists
-                node_embs = eval(item['node_embs'])  # noqa: S307 - trusted data assumption
+                # node_embs is expected to be a JSON stringified list of lists
+                node_embs = json.loads(item['node_embs'])
                 graph_emb = torch.tensor(node_embs, dtype=torch.float)
             else:
                 graph_emb_str = item['graph_emb'].strip('[]').split(',')
                 graph_emb = torch.tensor([float(x) for x in graph_emb_str], dtype=torch.float)
             
-            code = str(item['code']) # Ensure code is string
+            code = str(item[self.code_column]) # Ensure code is string
             
             # code_emb_str = item['code_emb'].strip('[]').split(',')
             # code_emb = torch.tensor([float(x) for x in code_emb_str], dtype=torch.float)

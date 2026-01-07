@@ -49,7 +49,7 @@ def main():
     # Remove --code_encoder parameter
     parser.add_argument('--column_name', type=str, default='code',
                         help='Code column name')
-    parser.add_argument('--output_type', type=str, default='node', choices=['graph', 'node'],
+    parser.add_argument('--output_type', type=str, default='graph', choices=['graph', 'node'],
                         help='Choose whether to export graph-level embeddings or per-node embeddings')
     parser.add_argument('--use_random_weights', action='store_true',
                    help='Use randomly initialized weights instead of loading the trained model')
@@ -182,6 +182,15 @@ def main():
 
     # First create a copy of all original data
     result_data = code_data.copy()
+
+    # Ensure a unified 'code' column exists (Stage2 expects 'code')
+    if isinstance(result_data, pd.DataFrame):
+        if args.column_name not in result_data.columns:
+            raise ValueError(
+                f"Specified --column_name '{args.column_name}' not found in code dataset columns: {list(result_data.columns)}"
+            )
+        if 'code' not in result_data.columns:
+            result_data['code'] = result_data[args.column_name]
     
     # If there is no idx column, create one
     if 'idx' not in result_data.columns:

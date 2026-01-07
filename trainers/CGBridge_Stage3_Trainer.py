@@ -196,6 +196,41 @@ def create_dataloaders(config):
         csv_path=config["data"]["valid_path"],
         max_length=config['model']['max_txt_len']
     )
+
+    def collate_graph_text(batch):
+        """
+        Collate function to handle variable-length node embeddings.
+        Supports either graph-level vector (shape [dim]) or node sequence (shape [num_nodes, dim]).
+        """
+        idx_list, graph_list, *text_fields = zip(*batch)
+
+        seq_lens = []
+        emb_dim = None
+        for g in graph_list:
+            if g.dim() == 1:
+                seq_lens.append(1)
+                emb_dim = g.size(-1)
+            elif g.dim() == 2:
+                seq_lens.append(g.size(0))
+                emb_dim = g.size(-1)
+            else:
+                raise ValueError(f"Unsupported graph embedding shape: {g.shape}")
+        max_len = max(seq_lens)
+
+        graph_embeds = torch.zeros(len(batch), max_len, emb_dim, dtype=graph_list[0].dtype)
+        graph_atts = torch.zeros(len(batch), max_len, dtype=torch.long)
+
+        for i, g in enumerate(graph_list):
+            if g.dim() == 1:
+                g = g.unsqueeze(0)
+            cur_len = g.size(0)
+            graph_embeds[i, :cur_len] = g
+            graph_atts[i, :cur_len] = 1
+
+        idx_tensor = torch.tensor(idx_list, dtype=torch.long)
+
+        text_outputs = [list(field) for field in text_fields]
+        return (idx_tensor, (graph_embeds, graph_atts), *text_outputs)
     
     # Create data loaders (no need to explicitly set DistributedSampler, Accelerate will handle it)
     train_loader = DataLoader(
@@ -205,6 +240,7 @@ def create_dataloaders(config):
         num_workers=config['data']['num_workers'],
         pin_memory=True,
         drop_last=True,
+        collate_fn=collate_graph_text,
     )
     
     valid_loader = DataLoader(
@@ -213,6 +249,7 @@ def create_dataloaders(config):
         shuffle=False,
         num_workers=config['data']['num_workers'],
         pin_memory=True,
+        collate_fn=collate_graph_text,
     )
     
     return train_loader, valid_loader
@@ -342,8 +379,9 @@ def validate(model, data_loader, accelerator, config):
             # Move data to device - no need to manually move, Accelerate will handle it
             idx, graph_embs, code, code_summary = samples
             
-            # Add NaN/Inf check for input graph_embs (although it has been checked in previous scripts, double-checking is harmless)
-            if torch.isnan(graph_embs).any() or torch.isinf(graph_embs).any():
+            # Add NaN/Inf check for input graph_embs (supports tuple (embeds, mask))
+            graph_to_check = graph_embs[0] if isinstance(graph_embs, tuple) else graph_embs
+            if torch.isnan(graph_to_check).any() or torch.isinf(graph_to_check).any():
                 accelerator.print(f"VALIDATE_INPUT_CHECK (Batch {batch_idx}): NaN/Inf found in graph_embs from valid_loader! CSV_Indices (first 5): {idx.tolist()[:5]}")
 
             # Keep text that cannot be directly moved to the device as a list
